@@ -10,6 +10,87 @@ import UIKit
 // MARK: - UITableView Extension
 extension UITableView {
 
+    public func dg_heightForCell(cell: UITableViewCell,configuration: ((cell: UITableViewCell) -> Void)?) -> CGFloat {
+        // Manually calls to ensure consistent behavior with actual cells (that are displayed on screen).
+        cell.prepareForReuse()
+        
+        // Customize and provide content for our template cell.
+        if configuration != nil {
+            configuration!(cell: cell)
+        }
+        
+        var contentViewWidth: CGFloat = CGRectGetWidth(self.frame)
+        
+        // If a cell has accessory view or system accessory type, its content view's width is smaller
+        // than cell's by some fixed values.
+        if cell.accessoryView != nil {
+            contentViewWidth -= 16 + CGRectGetWidth(cell.accessoryView!.frame)
+        } else {
+            var accessoryWidths: CGFloat?
+            switch cell.accessoryType {
+            case .None:
+                accessoryWidths = 0
+            case .DisclosureIndicator:
+                accessoryWidths = 34
+            case .DetailDisclosureButton:
+                accessoryWidths = 68
+            case .Checkmark:
+                accessoryWidths = 40
+            case .DetailButton:
+                accessoryWidths = 38
+            }
+            contentViewWidth -= accessoryWidths!
+        }
+        
+        var fittingSize: CGSize = CGSizeZero
+        
+        if cell.dg_enforceFrameLayout == true {
+            // If not using auto layout, you have to override "-sizeThatFits:" to provide a fitting size by yourself.
+            // This is the same method used in iOS8 self-sizing cell's implementation.
+            // Note: fitting height should not include separator view.
+            let selector: Selector = Selector("sizeThatFits:")
+            let inherited: Bool = cell.isMemberOfClass(UITableViewCell.self)
+            let overrided: Bool = cell.dynamicType.instanceMethodForSelector(selector) != UITableViewCell.instanceMethodForSelector(selector)
+            if inherited && !overrided {
+                assert(false, "Customized cell must override '-sizeThatFits:' method if not using auto layout.")
+            }
+            fittingSize = cell.sizeThatFits(CGSizeMake(contentViewWidth, 0))
+        } else {
+            // Add a hard width constraint to make dynamic content views (like labels) expand vertically instead
+            // of growing horizontally, in a flow-layout manner.
+            let tempWidthConstraint: NSLayoutConstraint = NSLayoutConstraint(item: cell.contentView, attribute: .Width, relatedBy: .Equal, toItem: nil, attribute: .NotAnAttribute, multiplier: 1.0, constant: contentViewWidth)
+            cell.contentView.addConstraint(tempWidthConstraint)
+            
+            // Make sure the constraints have been set up for this cell, since it may have just been created from
+            // scratch. Use the following lines, assuming you are setting up constraints from within the cell's
+            // updateConstraints method:
+            cell.setNeedsUpdateConstraints()
+            cell.updateConstraintsIfNeeded()
+            
+            // Do the layout pass on the cell, which will calculate the frames for all the views based on the constraints.
+            // (Note that you must set the preferredMaxLayoutWidth on multi-line UILabels inside the -[layoutSubviews]
+            // method of the UITableViewCell subclass, or do it manually at this point before the below 2 lines!)
+            cell.setNeedsLayout()
+            cell.layoutIfNeeded()
+            // Auto layout engine does its math
+            fittingSize = cell.systemLayoutSizeFittingSize(UILayoutFittingCompressedSize)
+            cell.contentView.removeConstraint(tempWidthConstraint)
+        }
+        
+        // Add 1px extra space for separator line if needed, simulating default UITableViewCell.
+        if self.separatorStyle != .None {
+            fittingSize.height += 1.0 / UIScreen.mainScreen().scale
+        }
+        
+        if cell.dg_enforceFrameLayout == true {
+            self.dg_debugLog("calculate using frame layout - \(fittingSize.height)")
+        } else {
+            self.dg_debugLog("calculate using auto layout - \(fittingSize.height)")
+        }
+        
+        return fittingSize.height
+    }
+    
     // MARK: - public method
     /// Returns height of cell of type specifed by a reuse identifier and configured
     /// by the configuration block.
